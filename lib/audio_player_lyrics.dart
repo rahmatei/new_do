@@ -36,15 +36,19 @@ class _LyricsListState extends State<LyricsList> {
   final _currentState = LyricsListState.stop;
   Timer? _timer;
   bool _isPaused = false;
+  DateTime? _startTime; // زمان شروع آیتم فعلی
+  int _elapsedTime = 0; // زمان سپری‌شده برای آیتم فعلی
   final ScrollController _scrollController = ScrollController();
   final List<GlobalKey> _keys = List.generate(8, (_) => GlobalKey());
   AudioPlayer _audioPlayer = AudioPlayer();
   String _audioPath = 'audio/abdolbaset_hamd_1.mp3';
 
+  
+
   @override
   void initState() {
     super.initState();
-    _startColorChange();
+    //_startColorChange();
     _audioPlayer.setReleaseMode(ReleaseMode.stop);
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await _audioPlayer.setSource(AssetSource(_audioPath));
@@ -61,19 +65,41 @@ class _LyricsListState extends State<LyricsList> {
   }
 
   void _pauseColorChange() async {
-    _timer?.cancel();
-    await  _audioPlayer.pause();
-    setState(() {
-      _isPaused = true;
-    });
+    if (_timer != null && !_isPaused) {
+      _timer?.cancel();
+      _elapsedTime += DateTime.now().difference(_startTime!).inMilliseconds; // محاسبه زمان سپری‌شده
+      await _audioPlayer.pause();
+      setState(() {
+        _isPaused = true;
+      });
+    }
   }
 
   void _resumeColorChange() async {
-        await _audioPlayer.resume();
-    setState(() {
-      _isPaused = false;
-    });
-    _startColorChange();
+    if (_isPaused) {
+      setState(() {
+        _isPaused = false;
+      });
+      final remainingTime = _durations[_currentIndex] - _elapsedTime; // زمان باقی‌مانده
+
+      if (remainingTime > 0) {
+        _startColorChange(remainingTime: remainingTime);
+      } else {
+        _colors[_currentIndex] = Colors.red;
+        _scrollToCurrentIndex();
+        _currentIndex++;
+        if (_currentIndex < _lyricsLines.length) {
+          _elapsedTime = 0;
+          _startColorChange();
+        } else {
+          _scrollToTopAfterDelay(_durations[_currentIndex - 1]);
+        }
+      }
+      await _audioPlayer.resume();
+    } else if (_currentIndex == 0) {
+      _startColorChange();
+      await _audioPlayer.resume();
+    }
   }
 
   void _stopColorChange() async {
@@ -83,6 +109,7 @@ class _LyricsListState extends State<LyricsList> {
     setState(() {
       _currentIndex = 0;
       _isPaused = false;
+            _elapsedTime = 0;
       _resetColors();
       _scrollToTop();
     });
@@ -94,12 +121,15 @@ class _LyricsListState extends State<LyricsList> {
     }
   }
 
-  void _startColorChange() async{
-        if (_currentIndex == 0 && !_isPaused) {
+  void _startColorChange({int? remainingTime}) async{
+       if (_currentIndex == 0 && !_isPaused) {
       await _audioPlayer.play(AssetSource(_audioPath));
     }
+
     if (_currentIndex < _lyricsLines.length && !_isPaused) {
-      _timer = Timer(Duration(milliseconds: _durations[_currentIndex]), () {
+      int duration = remainingTime ?? _durations[_currentIndex];
+      _startTime = DateTime.now();
+      _timer = Timer(Duration(milliseconds: duration), () {
         setState(() {
           if (_currentIndex > 0) {
             _colors[_currentIndex - 1] = Colors.white;
@@ -108,10 +138,10 @@ class _LyricsListState extends State<LyricsList> {
           _scrollToCurrentIndex();
           _currentIndex++;
           if (_currentIndex < _lyricsLines.length) {
+            _elapsedTime = 0;
             _startColorChange();
           } else {
             _scrollToTopAfterDelay(_durations[_currentIndex - 1]);
-           // _pauseColorChange();
           }
         });
       });
@@ -132,15 +162,6 @@ class _LyricsListState extends State<LyricsList> {
   void _scrollToCurrentIndex() {
     if (_scrollController.hasClients) {
       final context = _keys[_currentIndex].currentContext;
-      //final position = _scrollController.position;
-      //final targetPosition = _currentIndex * 150.0;
-      /*if ((targetPosition - position.pixels).abs() > 140) {
-        _scrollController.animateTo(
-          targetPosition,
-          duration: const Duration(milliseconds: 500),
-          curve: Curves.easeInOut,
-        );
-      }*/
       if (context != null) {
         Scrollable.ensureVisible(
           context,
@@ -152,18 +173,18 @@ class _LyricsListState extends State<LyricsList> {
   }
 
   void _scrollToTopAfterDelay(int delay) {
-    Future.delayed(Duration(milliseconds: delay), () {
+   Future.delayed(Duration(milliseconds: delay), () {
       _scrollToTop();
     });
   }
 
   void _scrollToTop() {
-    _scrollController.animateTo(
+   _scrollController.animateTo(
       0.0,
       duration: const Duration(milliseconds: 500),
       curve: Curves.easeInOut,
     );
-        setState(() {
+    setState(() {
       _resetColors();
       _currentIndex = 0;
     });
